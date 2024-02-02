@@ -8,12 +8,12 @@ class User(models.Model):
         ('client', 'Client User'),
     )
     username = models.CharField(max_length =80, unique=True)
-    email = models.EmailField(max_length=150)
+    password = models.CharField(max_length = 50, default="SOME STRING")
+    email = models.EmailField(max_length=150, unique=True)
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100, blank=True)
     user_type = models.CharField(max_length=50, choices=USER_TYPE, default='client')
     email_verified = models.BooleanField(default=False)
-    special_token = models.CharField(max_length=150, blank=True)
 
     def __str__(self):
         return self.username

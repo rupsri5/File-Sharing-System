@@ -11,7 +11,7 @@ class UserSerializer(serializers.ModelSerializer):
         user = self.context['request'].user
 
         
-        if user.is_authenticated and user.user_type == 'ops':
+        if user.is_authenticated and user.user_type == 'client':
             data.pop('special_token', None)
 
         return data
