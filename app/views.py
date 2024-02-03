@@ -17,6 +17,8 @@ import os
 from django.conf import settings
 from django.core.files.storage import default_storage
 from django.shortcuts import get_object_or_404
+from .auth import validate_token
+
 
 @csrf_exempt
 @api_view(['POST'])
@@ -50,6 +52,7 @@ def user_signup(request):
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)    
 
+
 @csrf_exempt
 @api_view(['POST'])
 def user_login(request):
@@ -63,19 +66,17 @@ def user_login(request):
         if not existing_user:
             return JsonResponse({"errors": "Invalid Credentials."}, status=status.HTTP_400_BAD_REQUEST)
         token = generate_jwt_token({"user_id": existing_user.id, "user_type": existing_user.user_type})
-        return JsonResponse({"message": "Success", "token": token})
+        return JsonResponse({"message": f"Success, {existing_user.user_type} user logged in", "token": token})
     except InputException as e:
         return JsonResponse({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     
 @csrf_exempt
 @api_view(['POST'])
-def file_upload(request):
-    user_id = request.data.get('user_id_upload')
-    user=User.objects.filter(id=user_id).first()
-    if not user:
-        return JsonResponse({"error":"Invalid user"}, status=status.HTTP_400_BAD_REQUEST)
+@validate_token
+def file_upload(request, user):
     if user.user_type=='client':
         return JsonResponse({"error":"Access Denied"}, status=status.HTTP_400_BAD_REQUEST)
     if not request.FILES.get('file'):
@@ -92,67 +93,40 @@ def file_upload(request):
         new_file_name= f"{file_id}.{uploaded_file.name.split('.')[-1].lower()}"
         
         default_storage.save(f'files/{new_file_name}', uploaded_file)
-        file_serializer.save(id=file_id)
+        file_serializer.save(id=file_id, user_id_upload=user, file_present=True)
 
         return JsonResponse(file_serializer.data, status=status.HTTP_201_CREATED)
     return JsonResponse(file_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-# @api_view(['POST'])
-# def generate_download_link(request, id):
-#     try:
-#         file_obj = Files.objects.get(pk=id)
-#         # Generate one-time downloadable link logic goes here
-
-#         # For simplicity, just return the file URL for now
-#         download_url = file_obj.file.url
-
-#         response_data = {"downloadable_url": download_url, "message": "success"}
-#         return JsonResponse(response_data)
-
-#     except Files.DoesNotExist:
-#         return JsonResponse({"message": "File not found"}, status=404)
 
 @csrf_exempt
 @api_view(['POST'])
-def generate_download_link(request):
+@validate_token
+def generate_download_link(request, user):
     file_id = request.data.get('file_id')
-    user_id = request.data.get('user_id')
     
     file=Files.objects.filter(id=file_id).first()
     if not file and not file.file_present:
         return JsonResponse({"error": "File not found"}, status=status.HTTP_400_BAD_REQUEST)
     
-    user=User.objects.filter(id=user_id).first()
-    if not user:
-        return JsonResponse({"error":"Invalid user."}, status=status.HTTP_400_BAD_REQUEST)
+
     if user.user_type=='ops':
         return JsonResponse({"error": "You are not allowed to perform the operation"}, status=status.HTTP_400_BAD_REQUEST)
     
-    
-    file_instance = get_object_or_404(Files, id=file_id)
-    user_instance = get_object_or_404(User, id=user_id)
-    download_history_instance = File_Download_History()
-    download_history_instance.file_id=file_instance
-    download_history_instance.user_id=user_instance
-    # download_object=File_Download_History.objects.create(file_id=file_id, user_id=user_id)
-    download_history_instance.save()
-    download_url = request.build_absolute_uri(f'/download/{download_history_instance.download_id}')
+    download_object=File_Download_History.objects.create(file_id=file, user_id=user)
+    download_url = request.build_absolute_uri(f'/download/{download_object.download_id}')
     return JsonResponse({"link": download_url})
 
+
 @csrf_exempt
-@api_view(['POST'])
-def download(request, uuid):
-    user_id = request.data.get('user_id')
-    
-    user=User.objects.filter(id=user_id).first()
-    if not user:
-        return JsonResponse({"error":"Invalid user."}, status=status.HTTP_400_BAD_REQUEST)
-    
+@api_view(['GET'])
+@validate_token
+def download(request, uuid, user):        
     link=File_Download_History.objects.filter(download_id=uuid).first()
     if not link or link.file_downloaded:
         return JsonResponse({"error": "Invalid download link"}, status=status.HTTP_400_BAD_REQUEST)
     
-    if link.user_id.id!=user_id:
+    if link.user_id.id!=user.id:
         return JsonResponse({"error": "Access Denied"}, status=status.HTTP_400_BAD_REQUEST)
     
     link.file_downloaded=True
@@ -167,22 +141,12 @@ def download(request, uuid):
         response['Content-Disposition']=f"attachment; filename={file.file}"
         return response
     
-        
-    
-    
-    
-    
-    # file_obj = Files.objects.get(id=id)
-    
-    # if not file_obj:
-    #     return JsonResponse({"error": "File doesn't exists."})
-    
-    # file_path = os.path.join(settings.MEDIA_ROOT, str(file_obj.file))  
-    
-    # if os.path.exists(file_path):
-    #     with open(file_path, 'rb') as file:
-    #         response = HttpResponse(file.read(), content_type='application/octet-stream')
-    #         response['Content-Disposition'] = f'attachment; filename="{file_obj.file.name}"'
-    #         return response
-    # else:
-    #     return JsonResponse({"error": "File not found"}, status=404)
+@csrf_exempt
+@api_view(['GET'])
+@validate_token
+def list_file(request, user):
+    if user.user_type=='ops':
+        return JsonResponse({"error": "You are not allowed to perform the operation"}, status=status.HTTP_400_BAD_REQUEST)
+    files = Files.objects.all()
+    serializer = FilesSerializer(files, many=True)
+    return JsonResponse({"data": serializer.data}, status=status.HTTP_200_OK)

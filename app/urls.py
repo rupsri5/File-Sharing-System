@@ -7,4 +7,5 @@ urlpatterns = [
     path('file_upload', views.file_upload, name='file_upload'),
     path('generate_download_link', views.generate_download_link, name='generate_download_link'),
     path('download/<uuid:uuid>', views.download, name="download"),
+    path('list_file', views.list_file, name="list_file"),
 ]
