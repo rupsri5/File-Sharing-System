@@ -106,7 +106,7 @@ def generate_download_link(request, user):
     file_id = request.data.get('file_id')
     
     file=Files.objects.filter(id=file_id).first()
-    if not file and not file.file_present:
+    if not file or not file.file_present:
         return JsonResponse({"error": "File not found"}, status=status.HTTP_400_BAD_REQUEST)
     
 
